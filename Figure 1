@@ -1,1 +1,125 @@
+# ────────────────────────────────────────────────────────────
+# Figure 1: UMAP, Marker DotPlot, Composition Bar + Boxplots
+# ────────────────────────────────────────────────────────────
 
+# 1. LOAD LIBRARIES
+library(Seurat)      
+library(dplyr)       
+library(ggplot2)     
+library(cowplot)     
+library(ggpubr)      
+
+# 2. INPUT / OUTPUT PATHS
+data_file <- "data/HCCprocesseddata.rds"
+out_dir   <- "results"
+dir.create(out_dir, showWarnings = FALSE)
+
+# 3. READ DATA
+se <- readRDS(data_file)
+
+# 4. DEFINE COLORS & FACTORS
+celltype_colors <- c(
+  "CD8+ T"    = "#ECA8A9",
+  "CD4+ T"    = "#D3E2B7",
+  "B"         = "#74AED4",
+  "NK"        = "#F7C97E",
+  "Monocyte"  = "#CFAFD4",
+  "DC"        = "#8680A6",
+  "Platelet"  = "grey"
+)
+se$time <- factor(se$time, levels = c("pre", "post", "Control"))
+se$time <- recode(se$time, "Control" = "hc")
+
+# 5. PANEL B: UMAP SPLIT BY TIME
+p_umap <- DimPlot(
+  se,
+  reduction = "umap",
+  split.by  = "time",
+  group.by  = "CELLtype",
+  label     = FALSE,
+  pt.size   = 0.5,
+  cols      = celltype_colors
+) + theme_minimal() +
+    theme(
+      legend.text  = element_text(size = 10),
+      axis.text    = element_text(size = 12),
+      panel.border = element_rect(color = "black", fill = NA)
+    )
+ggsave(
+  filename = file.path(out_dir, "Fig1B_UMAP.pdf"),
+  plot     = p_umap,
+  width    = 8, height = 4
+)
+
+# 6. PANEL C: MARKER DOTPLOT
+markers  <- c(
+  "IL7R","CCR7","TRAC","CD3D","CD3G",
+  "CD14","CTSS","FCN1","LYZ","S100A9",
+  "NKG7","KLRD1","GNLY","FCER1G","PRF1",
+  "GZMB","CD8B","CD8A","CD79A","CD79B",
+  "MS4A1","CD74","IGHM","FCER1A","CST3","HLA-DPA1"
+)
+p_dot <- DotPlot(se, features = markers, group.by = "CELLtype") +
+  RotatedAxis() + theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 8, angle = 45, hjust = 1),
+    legend.position = "right"
+  )
+ggsave(
+  filename = file.path(out_dir, "Fig1C_DotPlot.pdf"),
+  plot     = p_dot,
+  width    = 6, height = 5
+)
+
+# 7. PANEL D: STACKED BAR CHART OF COMPOSITION
+df_props <- se@meta.data %>%
+  count(sample, time, CELLtype) %>%
+  group_by(sample, time) %>%
+  mutate(pct = n / sum(n) * 100) %>%
+  ungroup()
+
+# ensure ordering
+df_props$time <- factor(df_props$time, levels = c("pre","post","hc"))
+
+p_bar <- ggplot(df_props, aes(x = sample, y = pct, fill = CELLtype)) +
+  geom_col(width = 0.8) +
+  facet_wrap(~ time, scales = "free_x", space = "free_x") +
+  scale_fill_manual(values = celltype_colors) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid   = element_blank()
+  ) +
+  labs(y = "Percentage (%)", x = NULL)
+ggsave(
+  filename = file.path(out_dir, "Fig1D_BarChart.pdf"),
+  plot     = p_bar,
+  width    = 8, height = 4
+)
+
+# 8. PANEL E: BOX + LINE PLOT OF CELL-TYPE FREQUENCIES
+p_box <- ggplot(df_props, aes(x = time, y = pct, color = time)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.5) +
+  geom_line(
+    data    = filter(df_props, time %in% c("pre","post")),
+    aes(group = sample),
+    color   = "grey50", alpha = 0.5
+  ) +
+  geom_jitter(width = 0.2, size = 1) +
+  facet_wrap(~ CELLtype, scales = "free_y", nrow = 1) +
+  stat_compare_means(
+    comparisons = list(c("pre","post")),
+    paired      = TRUE,
+    label       = "p.signif"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "none"
+  ) +
+  labs(y = "Percentage (%)", x = NULL)
+ggsave(
+  filename = file.path(out_dir, "Fig1E_Boxplot.pdf"),
+  plot     = p_box,
+  width    = 10, height = 3
+)
