@@ -1,0 +1,127 @@
+# ────────────────────────────────────────────────────────────
+# 02-figure2.R: Differential Expression & Module Scores (Fig 2 A–H)
+# ────────────────────────────────────────────────────────────
+
+# 1. LOAD LIBRARIES
+library(Seurat)          # FindMarkers, FetchData
+library(dplyr)           # data wrangling
+library(ggplot2)         # custom plotting
+library(ComplexHeatmap)  # module heatmaps
+library(circlize)        # color mapping for heatmaps
+library(UCell)           # AddModuleScore_UCell
+library(ggpubr)          # stat_compare_means
+
+# 2. PATHS & I/O
+data_file    <- "data/HCCprocesseddata.rds"
+deg_dir      <- "data/DEGs"                 # your MASTPositive_DEGs_*.csv
+results_dir  <- "results"
+dir.create(results_dir, showWarnings = FALSE)
+
+# 3. READ IN OBJECT + DEGs
+se  <- readRDS(data_file)
+# list of cell types
+celltypes <- c("Monocyte","CD8+ T","CD4+ T","NK","B")
+
+# load each DEG table into a single data.frame
+deg_list <- lapply(celltypes, function(ct) {
+  read.csv(file.path(deg_dir, paste0("MASTPositive_DEGs_", ct, ".csv"))) %>%
+    filter(p_val_adj < 0.05, abs(avg_log2FC) > 0.25) %>%
+    mutate(
+      Celltype  = ct,
+      Direction = if_else(avg_log2FC > 0, "Up-regulated","Down-regulated")
+    )
+})
+degs <- bind_rows(deg_list)
+
+# 4. FIG 2A: BAR CHART OF #DEGs
+degs_summary <- degs %>%
+  count(Celltype, Direction) %>%
+  group_by(Celltype) %>%
+  mutate(Total = sum(n))
+
+p2A <- ggplot(degs_summary, aes(x = Celltype, y = n, fill = Direction)) +
+  geom_col() +
+  scale_fill_manual(values = c("Down-regulated"="#CFAFD4","Up-regulated"="#74AED4")) +
+  labs(y="Nr of expression differences") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle=45,hjust=1))
+ggsave(file.path(results_dir,"Fig2A_DEG_counts.png"), p2A, width=6, height=4)
+
+# 5. FIG 2B: CLUSTERED HEATMAP OF MODULES
+# build a wide matrix of avg_log2FC for each gene×celltype
+heatmat <- degs %>%
+  select(Gene=gene, Celltype, avg_log2FC) %>%
+  pivot_wider(names_from=Celltype, values_from=avg_log2FC, values_fill=0) %>%
+  column_to_rownames("Gene") %>%
+  as.matrix()
+
+# run k-means to get 6 modules
+set.seed(42)
+km <- kmeans(heatmat, centers=6, nstart=20)
+heatmat_mod <- split(as.data.frame(heatmat), km$cluster)
+
+# define a blue↔white↔red color map
+col_fun <- colorRamp2(c(-1,0,1), c("#CFAFD4","white","#74AED4"))
+
+# draw each cluster as a separate heatmap block
+ht_list <- lapply(names(heatmat_mod), function(mod){
+  Heatmap(
+    as.matrix(heatmat_mod[[mod]]),
+    name = paste0("Module", mod),
+    col  = col_fun,
+    show_row_names    = FALSE,
+    show_column_names = TRUE,
+    cluster_rows      = TRUE,
+    cluster_columns   = TRUE
+  )
+})
+pdf(file.path(results_dir,"Fig2B_Modules_heatmap.pdf"), width=5, height=8)
+draw(Reduce(`%v%`, ht_list), heatmap_legend_side="bottom")
+dev.off()
+
+# 6. PREPARE FOR MODULE VIOLIN PLOTS (C–F)
+# define your gene sets (example)
+modules <- list(
+  UBIQUITIN  = c("UBA2","UBE2C", "NEDD4L", "..."),  # fill in your Module 2 genes
+  TGF_BETA   = c("TGFB1","SMAD3","SMURF1", "..."),  # Module 6
+  IMMUNITY1  = c("CD74","HLA-DPA1","PRF1", "..."),  # Module 1
+  ISG        = c("ISG15","IFITM3","MX1", "...")     # Modules 4+5
+)
+
+# add UCell scores
+for (mod in names(modules)) {
+  se <- AddModuleScore_UCell(se, features=list(modules[[mod]]), name=mod)
+}
+
+# fetch data for plotting
+plotdat <- FetchData(se, vars=c(names(modules), "CELLtype","time")) %>%
+  mutate(time = factor(recode(time,"Control"="hc"), levels=c("pre","post","hc")))
+
+# 7. FIG 2C–F: VIOLIN PLOTS FOR EACH MODULE
+comparison_list <- list(c("pre","post"), c("pre","hc"), c("post","hc"))
+
+for (mod in names(modules)) {
+  p <- ggplot(plotdat, aes_string(x="time", y=paste0(mod,"_UCell"))) +
+    geom_violin(trim=FALSE, scale="width") +
+    geom_jitter(size=0.1, alpha=0.3) +
+    stat_compare_means(comparisons=comparison_list, label="p.format") +
+    facet_wrap(~ CELLtype, ncol=5) +
+    labs(
+      title = paste0(mod," score"),
+      y     = "AUC score",
+      x     = NULL
+    ) +
+    theme_bw() +
+    theme(axis.text.x=element_text(angle=45,hjust=1))
+  
+  ggsave(
+    filename = file.path(results_dir, paste0("Fig2_",mod,"_vln.png")),
+    plot     = p,
+    width    = 8, height = 4
+  )
+}
+
+# 8. FIG 2G–H: *CellChat* and chord diagrams
+# (see your 03-cellchat.R for these panels)
+
+message("Figure 2A–F complete. See results/*.")  
