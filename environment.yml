@@ -1,1 +1,52 @@
+name: hcc-repro
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+
+dependencies:
+  # core R
+  - r-base=4.2
+  - r-essentials
+
+  # single-cell & analytics
+  - r-seurat=4.3
+  - r-signac
+  - r-seuratwrappers
+  - r-monocle3
+  - r-harmony
+  - r-ucell
+  - r-mast
+
+  # plotting
+  - r-ggplot2
+  - r-patchwork
+  - r-cowplot
+  - r-ggrepel
+  - r-ggpubr
+  - r-hrbrthemes
+  - r-circlize
+  - r-complexheatmap
+  - r-pheatmap
+  - r-enhancedvolcano
+
+  # data wrangling
+  - r-dplyr
+  - r-tidyr
+  - r-stringr
+  - r-purrr
+
+  # enrichment & annotation
+  - r-clusterprofiler
+  - bioconductor-org.hs.eg.db
+  - bioconductor-dose
+  - bioconductor-reactomepa
+
+  # miscellaneous
+  - r-openxlsx
+  - r-pryr
+  - r-matrix
+  - r-reshape2
+
+
 
